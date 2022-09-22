@@ -7,6 +7,8 @@ import io.gatling.core.structure.{ChainBuilder, ScenarioBuilder}
 import io.gatling.http.Predef._
 import io.gatling.http.request.builder.HttpRequestBuilder
 import ru.tinkoff.gatling.utils.IntensityConverter.getIntensityFromString
+import cats.data._
+import cats.implicits._
 
 import scala.io.Source
 
@@ -39,15 +41,25 @@ case class Request(request: Option[String], intensity: Option[String], groups: O
 
 case class OneProfile(name: Option[String], period: Option[String], protocol: Option[String], profile: Option[List[Request]]) {
 
+  def reduceValidationErrors(nec: NonEmptyChain[DomainValidation]) = new Throwable(
+    nec.map(_.errorMessage).reverseIterator.mkString,
+  )
+
   def toRandomScenario: ScenarioBuilder = {
-    val requests     = this.profile.get.map(request => request.toTuple)
-    val intensitySum = requests.foldLeft(0.0)((sum, item) => sum + item._1)
-    val prepRequests =
-      requests.foldLeft(List.empty[(Double, ChainBuilder)]) { case (sum, (intensity, chain)) =>
-        sum :+ (100 * intensity / intensitySum, chain)
-      }
-    scenario(name.getOrElse("Scenario"))
-      .randomSwitch(prepRequests: _*)
+    val requests     = profile.getOrElse(List.empty[Request])
+    val validationResult = InputDataValidator.validateRequestList(requests).toEither
+    validationResult match {
+      case Left(nec) => throw reduceValidationErrors(nec)
+      case Right(validRequests) =>
+        val req = validRequests.map(request => request.toTuple)
+        val intensitySum = req.foldLeft(0.0)((sum, item) => sum + item._1)
+        val prepRequests =
+          req.foldLeft(List.empty[(Double, ChainBuilder)]) { case (sum, (intensity, chain)) =>
+            sum :+ (100 * intensity / intensitySum, chain)
+          }
+        scenario(name.getOrElse("Scenario"))
+          .randomSwitch(prepRequests: _*)
+    }
   }
 
 }
@@ -57,7 +69,7 @@ case class Metadata(name: Option[String], description: Option[String])
 case class Yaml(apiVersion: Option[String], kind: Option[String], metadata: Option[Metadata], spec: Option[List[OneProfile]]) {
 
   def selectProfile(profileName: String): OneProfile = {
-    val profileList = this.spec.getOrElse(throw new NoSuchElementException("No profiles in spec"))
+    val profileList = spec.getOrElse(throw new NoSuchElementException("No profiles in spec"))
     profileList.filter(_.name.getOrElse(throw new NoSuchElementException(s"No such profile: $profileName")) == profileName).head
   }
 
