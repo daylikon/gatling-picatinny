@@ -46,12 +46,12 @@ case class OneProfile(name: Option[String], period: Option[String], protocol: Op
   )
 
   def toRandomScenario: ScenarioBuilder = {
-    val requests     = profile.getOrElse(List.empty[Request])
+    val requests         = profile.getOrElse(List.empty[Request])
     val validationResult = InputDataValidator.validateRequestList(requests).toEither
     validationResult match {
-      case Left(nec) => throw reduceValidationErrors(nec)
+      case Left(nec)            => throw reduceValidationErrors(nec)
       case Right(validRequests) =>
-        val req = validRequests.map(request => request.toTuple)
+        val req          = validRequests.map(request => request.toTuple)
         val intensitySum = req.foldLeft(0.0)((sum, item) => sum + item._1)
         val prepRequests =
           req.foldLeft(List.empty[(Double, ChainBuilder)]) { case (sum, (intensity, chain)) =>
